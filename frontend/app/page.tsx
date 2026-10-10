@@ -122,7 +122,8 @@ export default function Page() {
   const [running, setRunning] = useState(false);
   const [runOutput, setRunOutput] = useState<any>(null);
   const [stateHistory, setStateHistory] = useState<{ node: string; state: any; changed: string[] }[]>([]);
-  const [showStateView, setShowStateView] = useState(false);
+  const [flowSteps, setFlowSteps] = useState<string[]>([]);
+  const [showFlow, setShowFlow] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(440);
   const [chatHeight, setChatHeight] = useState(200);
   const [showRunForm, setShowRunForm] = useState(false);
@@ -212,6 +213,11 @@ export default function Page() {
       });
       const data = await res.json();
       setChatResult(JSON.stringify(data, null, 2));
+      setFlowSteps(data.steps || []);
+      if (data.clarification) {
+        setChatResult("Clarification needed: " + data.clarification);
+        return;
+      }
       let generated = data.generated;
       if (!generated && data.raw) generated = extractJSON(data.raw);
       if (generated) {
@@ -321,12 +327,12 @@ export default function Page() {
           <span className="text-xs text-zinc-500">NodeSmith</span>
         </div>
         <div className="flex items-center gap-2">
-          {stateHistory.length > 0 && (
+          {flowSteps.length > 0 && (
             <button
-              onClick={() => setShowStateView(true)}
+              onClick={() => setShowFlow(true)}
               className="flex items-center gap-1 rounded border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800"
             >
-              <GitBranch className="h-4 w-4" /> State
+              <GitBranch className="h-4 w-4" /> Flow
             </button>
           )}
           {(selected || selectedEdge) && (
@@ -514,8 +520,25 @@ export default function Page() {
         </div>
       )}
 
-      {/* Separate state graph view */}
-      {showStateView && (
+      {/* NodeSmith internal flow graph */}
+      {showFlow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-lg rounded-xl border border-zinc-700 bg-zinc-900 p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="font-semibold">NodeSmith flow</h3>
+              <button onClick={() => setShowFlow(false)} className="text-zinc-400"><X /></button>
+            </div>
+            <div className="flex items-center gap-2">
+              {flowSteps.map((s, i) => (
+                <div key={i} className="flex items-center">
+                  <div className="rounded border border-indigo-600 bg-indigo-950 px-3 py-2 text-sm">{s}</div>
+                  {i < flowSteps.length - 1 && <span className="mx-1 text-zinc-500">→</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
           <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl border border-zinc-700 bg-zinc-900">
             <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">

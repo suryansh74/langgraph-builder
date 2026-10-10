@@ -89,55 +89,46 @@ def get_graph(graph_id: str):
         raise HTTPException(404, "Graph not found")
     return graphs[graph_id]
 
-@app.post("/chat")
-async def chat(request: ChatRequest):
-    """Chat to generate tools, agents, or nodes via LLM."""
-    system = """You are NodeSmith, a LangGraph node generator.
-Return ONLY valid JSON (no markdown) with this shape:
-{
-  "label": "Short name",
-  "type": "tool|llm|agent|function|conditional",
-  "tools": [{"name": "tool_name", "description": "..."}],
-  "signature": {
-    "name": "snake_case",
-    "input_schema": {"type":"object","properties":{...},"required":[...]},
-    "output_schema": {"type":"object","properties":{...}},
-    "description": "..."
-  },
-  "code": "def function_name(state):\\n    # real logic\\n    return {...}",
-  "config": {}
-}
-For weather tools: include location and api_key in input, and write a realistic code stub that uses requests to call OpenWeather (or notes that api_key is required). Do not pretend to call the API if no key is present.
-"""
-    messages = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": request.message}
-    ]
-    response = await llm.ainvoke(messages)
+def safe_exec_tool(code: str, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute simple pure tool code in a restricted namespace."""
+    coerced = {}
+    for k, v in inputs.items():
+        if isinstance(v, str) and v.replace(".", "", 1).replace("-", "", 1).isdigit():
+            coerced[k] = float(v) if "." in v else int(v)
+        else:
+            coerced[k] = v
+    safe_builtins = {"abs": abs, "min": min, "max": max, "sum": sum, "len": len, "range": range, "int": int, "float": float, "str": str, "dict": dict, "list": list}
+    ns: Dict[str, Any] = {"__builtins__": safe_builtins}
     try:
-        node_data = json.loads(response.content)
-        return {"generated": node_data, "raw": response.content}
-    except:
-        return {"generated": None, "raw": response.content, "note": "Parse as node JSON"}
+        exec(code, ns, ns)
+        fn = None
+        for name, obj in ns.items():
+            if callable(obj) and not name.startswith("_"):
+                fn = obj
+                break
+        if fn is None:
+            return {"error": "No function found in code"}
+        result = fn(coerced)
+        return result if isinstance(result, dict) else {"result": result}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post("/test-tool")
 async def test_tool(payload: Dict[str, Any]):
-    """Test a single tool independently. For weather, call OpenWeather if api_key is present."""
+    """Actually execute tool code (or call OpenWeather)."""
     import httpx
-    tool_type = payload.get("type", "")
     config = payload.get("config") or {}
     inputs = payload.get("inputs") or {}
     label = (payload.get("label") or "").lower()
     code = payload.get("code") or ""
 
-    # Weather tool: real call if key present
-    if "weather" in label or "weather" in code.lower():
+    if "weather" in label or "openweather" in code.lower():
         api_key = config.get("api_key") or inputs.get("api_key")
         location = inputs.get("location")
         if not api_key:
-            return {"error": "No API key on this tool. Add it in NodeSmith or config."}
+            return {"error": "No API key on this tool."}
         if not location:
-            return {"error": "Provide a location to test."}
+            return {"error": "Provide a location."}
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 r = await client.get(
@@ -146,33 +137,116 @@ async def test_tool(payload: Dict[str, Any]):
                 )
                 data = r.json()
                 if r.status_code != 200:
-                    return {"error": data.get("message", "OpenWeather error"), "status": r.status_code}
+                    return {"error": data.get("message", "OpenWeather error")}
                 return {
                     "temperature": data["main"]["temp"],
                     "wind_speed": data["wind"]["speed"],
                     "conditions": data["weather"][0]["description"],
-                    "humidity": data["main"].get("humidity"),
-                    "source": "OpenWeather (real call)",
+                    "source": "OpenWeather",
                 }
         except Exception as e:
             return {"error": str(e)}
 
-    # Generic: ask the LLM to simulate/execute based on the code
-    prompt = f"""You are executing this tool code with the given inputs.
-Code:
-{code}
+    if code.strip():
+        return safe_exec_tool(code, inputs)
+    return {"error": "No code to execute"}
 
-Inputs: {json.dumps(inputs)}
-
-Return ONLY a JSON object with the tool's output fields. No markdown."""
+@app.post("/chat")
+async def chat(request: ChatRequest):
+    """NodeSmith flow: clarify → generate code + tests → execute tests → retry if needed."""
+    system = """You are NodeSmith. Create a tool or function. Return ONLY valid JSON (no markdown):
+{
+  "label": "Add Numbers",
+  "type": "function",
+  "signature": {
+    "name": "add_numbers",
+    "input_schema": {"type":"object","properties":{"a":{"type":"number","description":"First"},"b":{"type":"number","description":"Second"}},"required":["a","b"]},
+    "output_schema": {"type":"object","properties":{"result":{"type":"number"}}},
+    "description": "Adds two numbers"
+  },
+  "code": "def add_numbers(state):\\n    return {'result': float(state['a']) + float(state['b'])}",
+  "tests": [{"inputs": {"a": 2, "b": 3}, "expected": {"result": 5}}],
+  "clarification_needed": false,
+  "clarification_question": ""
+}
+Rules:
+- Function must take one dict argument (state) and return a dict.
+- Include at least one test with inputs and expected output.
+- If the request is ambiguous, set clarification_needed true and ask a short question.
+- Write real executable Python only.
+"""
+    response = await llm.ainvoke([
+        {"role": "system", "content": system},
+        {"role": "user", "content": request.message}
+    ])
+    raw = response.content
+    node = None
     try:
-        resp = await llm.ainvoke([{"role": "user", "content": prompt}])
+        node = json.loads(raw)
+    except:
+        import re
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if m:
+            try:
+                node = json.loads(m.group())
+            except:
+                pass
+    if node is None:
+        return {"generated": None, "raw": raw, "steps": ["parse_failed"]}
+
+    steps = ["generate"]
+    if node.get("clarification_needed"):
+        return {
+            "generated": None,
+            "clarification": node.get("clarification_question", "Please clarify."),
+            "steps": ["clarify"],
+            "raw": raw,
+        }
+
+    code = node.get("code", "")
+    tests = node.get("tests") or []
+    test_results = []
+    all_passed = True
+    for t in tests:
+        actual = safe_exec_tool(code, t.get("inputs", {}))
+        expected = t.get("expected", {})
+        passed = ("error" not in actual) and all(actual.get(k) == v for k, v in expected.items())
+        if not passed:
+            all_passed = False
+        test_results.append({"inputs": t.get("inputs"), "expected": expected, "actual": actual, "passed": passed})
+    steps.append("test")
+
+    if not all_passed and tests:
+        steps.append("retry")
+        feedback = f"Tests failed: {json.dumps(test_results)}. Fix the code. Return the same JSON shape."
+        retry = await llm.ainvoke([
+            {"role": "system", "content": system},
+            {"role": "user", "content": request.message},
+            {"role": "assistant", "content": raw},
+            {"role": "user", "content": feedback},
+        ])
         try:
-            return json.loads(resp.content)
+            node = json.loads(retry.content)
+            code = node.get("code", code)
+            test_results = []
+            all_passed = True
+            for t in (node.get("tests") or tests):
+                actual = safe_exec_tool(code, t.get("inputs", {}))
+                expected = t.get("expected", {})
+                passed = ("error" not in actual) and all(actual.get(k) == v for k, v in expected.items())
+                if not passed:
+                    all_passed = False
+                test_results.append({"inputs": t.get("inputs"), "expected": expected, "actual": actual, "passed": passed})
         except:
-            return {"raw": resp.content}
-    except Exception as e:
-        return {"error": str(e)}
+            pass
+
+    return {
+        "generated": node,
+        "tests": test_results,
+        "all_passed": all_passed,
+        "steps": steps,
+        "raw": raw,
+    }
 
 @app.post("/tests")
 def add_test(test: TestCase):
