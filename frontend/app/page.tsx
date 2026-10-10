@@ -386,9 +386,9 @@ export default function Page() {
                   </div>
                 )}
 
-                {selected.data.type === 'tool' && (
+                {(selected.data.type === 'tool' || selected.data.type === 'function' || selected.data.type === 'func') && (
                   <div className="rounded border border-zinc-700 p-3">
-                    <div className="mb-2 text-xs uppercase text-zinc-500">Test this tool</div>
+                    <div className="mb-2 text-xs uppercase text-zinc-500">Test this node</div>
                     {Object.keys((selected.data.signature as any)?.input_schema?.properties || {})
                       .filter((k) => !['api_key', 'apikey', 'key', 'token'].includes(k.toLowerCase()))
                       .map((k) => (
@@ -407,7 +407,7 @@ export default function Page() {
                       disabled={testingTool}
                       className="mt-2 rounded bg-amber-600 px-3 py-1 text-xs font-medium hover:bg-amber-500 disabled:opacity-50"
                     >
-                      {testingTool ? 'Testing...' : 'Run tool'}
+                      {testingTool ? 'Testing...' : 'Run'}
                     </button>
                     {toolTestResult && (
                       <pre className="mt-2 max-h-32 overflow-auto rounded bg-zinc-950 p-2 text-[11px] text-emerald-300">
