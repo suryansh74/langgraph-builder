@@ -13,9 +13,9 @@ Web-based visual builder for LangGraph workflows with drag-and-drop canvas, hier
 - **Storage**: Postgres Docker for graphs, nodes, runs, test results.
 - **Stack**: Frontend Next.js, Backend Python FastAPI + LangGraph.
 
-## Quick Start
+## Quick Start (using uv)
 
-**Python version:** Use Python **3.12** or **3.13**. Python 3.14 is too new for some native packages (`asyncpg`, `psycopg2`, older pydantic-core). If you only have 3.14, the slim requirements below will still let the API run (Postgres wiring is optional for now).
+**uv is already installed on your machine.** Use it instead of pip/venv.
 
 ```bash
 git clone https://github.com/suryansh74/langgraph-builder.git
@@ -23,18 +23,16 @@ cd langgraph-builder
 cp .env.example .env
 # Edit .env → set GROQ_API_KEY=gsk_...
 
-# 1. Postgres (optional for the skeleton – the API currently uses in-memory storage)
+# 1. Postgres (optional for the skeleton)
 docker compose up -d
 
-# 2. Backend (new terminal, from project root)
+# 2. Backend (from project root)
 cd backend
-python3.12 -m venv venv          # or python3.13
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+uv sync                          # creates .venv and installs deps
+uv run uvicorn main:app --reload --port 8000
 # Leave this running
 
-# 3. Frontend (another new terminal, from project root)
+# 3. Frontend (new terminal, from project root)
 cd frontend
 npm install
 npm run dev
@@ -43,8 +41,14 @@ npm run dev
 Open http://localhost:3000  
 API docs: http://localhost:8000/docs
 
-**If you are stuck on Python 3.14:**  
-The updated `requirements.txt` omits the packages that fail to build on 3.14. The chat + canvas will still work. Add Postgres packages later when you're on 3.12/3.13 or when wheels appear.
+**If uv complains about Python 3.14:**  
+```bash
+uv python install 3.12
+uv sync --python 3.12
+uv run --python 3.12 uvicorn main:app --reload --port 8000
+```
+
+The current backend does not need Postgres drivers to run (storage is in-memory). Add them later when you want real persistence.
 
 ## Architecture
 
