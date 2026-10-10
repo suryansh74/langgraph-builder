@@ -15,24 +15,26 @@ Web-based visual builder for LangGraph workflows with drag-and-drop canvas, hier
 
 ## Quick Start
 
+**Python version:** Use Python **3.12** or **3.13**. Python 3.14 is too new for some native packages (`asyncpg`, `psycopg2`, older pydantic-core). If you only have 3.14, the slim requirements below will still let the API run (Postgres wiring is optional for now).
+
 ```bash
 git clone https://github.com/suryansh74/langgraph-builder.git
 cd langgraph-builder
 cp .env.example .env
-# Edit .env and set GROQ_API_KEY=gsk_...
+# Edit .env → set GROQ_API_KEY=gsk_...
 
-# 1. Start Postgres
+# 1. Postgres (optional for the skeleton – the API currently uses in-memory storage)
 docker compose up -d
 
-# 2. Backend (from the project root)
+# 2. Backend (new terminal, from project root)
 cd backend
-python -m venv venv
-source venv/bin/activate          # or `venv\Scripts\activate` on Windows
+python3.12 -m venv venv          # or python3.13
+source venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
-# Leave this terminal running
+# Leave this running
 
-# 3. Frontend (new terminal, from project root)
+# 3. Frontend (another new terminal, from project root)
 cd frontend
 npm install
 npm run dev
@@ -41,7 +43,8 @@ npm run dev
 Open http://localhost:3000  
 API docs: http://localhost:8000/docs
 
-**Note:** If `pip install` fails on numpy/asyncpg (common on some Python versions), try Python 3.11 or 3.12, or remove the strict pins and use `pip install fastapi uvicorn langgraph langchain langchain-openai pydantic sqlalchemy asyncpg psycopg2-binary pytest httpx python-dotenv langfuse`.
+**If you are stuck on Python 3.14:**  
+The updated `requirements.txt` omits the packages that fail to build on 3.14. The chat + canvas will still work. Add Postgres packages later when you're on 3.12/3.13 or when wheels appear.
 
 ## Architecture
 
