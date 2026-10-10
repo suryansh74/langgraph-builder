@@ -21,11 +21,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Grok via OpenAI-compatible client
+# Groq via OpenAI-compatible client (https://api.groq.com/openai/v1)
+# Supports models like openai/gpt-oss-120b, llama-3.3-70b-versatile, etc.
 llm = ChatOpenAI(
-    model=os.getenv("MODEL_NAME", "grok-4"),
-    api_key=os.getenv("XAI_API_KEY"),
-    base_url="https://api.x.ai/v1",
+    model=os.getenv("MODEL_NAME", "openai/gpt-oss-120b"),
+    api_key=os.getenv("GROQ_API_KEY"),
+    base_url="https://api.groq.com/openai/v1",
     temperature=0.2,
 )
 
@@ -73,7 +74,7 @@ test_cases: List[TestCase] = []
 
 @app.get("/")
 def root():
-    return {"message": "LangGraph Builder API", "model": os.getenv("MODEL_NAME", "grok-4")}
+    return {"message": "LangGraph Builder API", "provider": "Groq", "model": os.getenv("MODEL_NAME", "openai/gpt-oss-120b")}
 
 @app.post("/graphs")
 def create_graph(graph: Graph):

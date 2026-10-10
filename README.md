@@ -15,36 +15,33 @@ Web-based visual builder for LangGraph workflows with drag-and-drop canvas, hier
 
 ## Quick Start
 
-1. Clone and setup:
-   ```bash
-   git clone https://github.com/ishaanyo/langgraph-builder.git
-   cd langgraph-builder
-   cp .env.example .env
-   # Add XAI_API_KEY (Grok), DATABASE_URL, LANGFUSE keys
-   ```
+```bash
+git clone https://github.com/suryansh74/langgraph-builder.git
+cd langgraph-builder
+cp .env.example .env
+# Edit .env and set GROQ_API_KEY=gsk_...
 
-2. Start infrastructure:
-   ```bash
-   docker compose up -d
-   ```
+# 1. Start Postgres
+docker compose up -d
 
-3. Backend:
-   ```bash
-   cd backend
-   python -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   uvicorn main:app --reload --port 8000
-   ```
+# 2. Backend (from the project root)
+cd backend
+python -m venv venv
+source venv/bin/activate          # or `venv\Scripts\activate` on Windows
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+# Leave this terminal running
 
-4. Frontend:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
+# 3. Frontend (new terminal, from project root)
+cd frontend
+npm install
+npm run dev
+```
 
-5. Open http://localhost:3000 for the builder canvas + chat.
+Open http://localhost:3000  
+API docs: http://localhost:8000/docs
+
+**Note:** If `pip install` fails on numpy/asyncpg (common on some Python versions), try Python 3.11 or 3.12, or remove the strict pins and use `pip install fastapi uvicorn langgraph langchain langchain-openai pydantic sqlalchemy asyncpg psycopg2-binary pytest httpx python-dotenv langfuse`.
 
 ## Architecture
 
@@ -56,7 +53,9 @@ Web-based visual builder for LangGraph workflows with drag-and-drop canvas, hier
 
 ## Model Note
 
-Uses Grok API (xAI). Model name configurable (default grok-4 or as specified). "GPT-OS 120B" may refer to open models; configure via env.
+Uses **Groq API** (OpenAI-compatible). Default model is `openai/gpt-oss-120b`.  
+Set `GROQ_API_KEY` and optionally change `MODEL_NAME` in `.env`.  
+Other common models: `llama-3.3-70b-versatile`, `mixtral-8x7b-32768`.
 
 ## Tests
 
