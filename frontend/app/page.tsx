@@ -127,7 +127,9 @@ export default function Page() {
   const [chatHeight, setChatHeight] = useState(200);
   const [showRunForm, setShowRunForm] = useState(false);
   const [runInputs, setRunInputs] = useState<Record<string, string>>({});
-  const [renaming, setRenaming] = useState('');
+  const [toolTestInputs, setToolTestInputs] = useState<Record<string, string>>({});
+  const [toolTestResult, setToolTestResult] = useState<any>(null);
+  const [testingTool, setTestingTool] = useState(false);
   const dragRef = useRef(false);
   const chatDragRef = useRef(false);
 
@@ -158,6 +160,31 @@ export default function Page() {
     if (selectedEdge) {
       setEdges((eds) => eds.filter((e) => e.id !== selectedEdge.id));
       setSelectedEdge(null);
+    }
+  };
+
+  const testSelectedTool = async () => {
+    if (!selected || selected.data.type !== 'tool') return;
+    setTestingTool(true);
+    setToolTestResult(null);
+    try {
+      const res = await fetch('http://localhost:8000/test-tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          label: selected.data.label,
+          type: selected.data.type,
+          code: selected.data.code,
+          config: selected.data.config || {},
+          inputs: toolTestInputs,
+        }),
+      });
+      const data = await res.json();
+      setToolTestResult(data);
+    } catch (e: any) {
+      setToolTestResult({ error: e.message });
+    } finally {
+      setTestingTool(false);
     }
   };
 
@@ -252,13 +279,9 @@ export default function Page() {
       if (n.data.type === 'entry' || n.data.type === 'exit') continue;
       const prev = { ...current };
       const cfg = (n.data.config as any) || {};
-      if ((n.data.type === 'tool' || n.data.type === 'func') && String(n.data.label).toLowerCase().includes('weather')) {
-        if (!cfg.api_key) {
-          current = { ...current, error: 'No API key stored on tool' };
-        } else {
-          // Real call would go here; for now mark that key is present
-          current = { ...current, temperature: 22, wind_speed: 9, conditions: 'Key present — call would run' };
-        }
+      if (n.data.type === 'tool' || n.data.type === 'func') {
+        // Leave real execution to the independent tool test for now
+        current = { ...current, note: `Tool ${n.data.label} not executed in graph run yet` };
       } else if (n.data.type === 'llm') {
         current = { ...current, reply: `LLM response for ${JSON.stringify(runInputs)}` };
       }
@@ -359,6 +382,37 @@ export default function Page() {
                 {(selected.data.config as any)?.api_key && (
                   <div className="rounded bg-amber-950 px-2 py-1 text-xs text-amber-300">
                     API key stored: {(selected.data.config as any).api_key.slice(0, 6)}…
+                  </div>
+                )}
+
+                {selected.data.type === 'tool' && (
+                  <div className="rounded border border-zinc-700 p-3">
+                    <div className="mb-2 text-xs uppercase text-zinc-500">Test this tool</div>
+                    {Object.keys((selected.data.signature as any)?.input_schema?.properties || {})
+                      .filter((k) => !['api_key', 'apikey', 'key', 'token'].includes(k.toLowerCase()))
+                      .map((k) => (
+                        <div key={k} className="mb-2">
+                          <label className="text-xs text-zinc-400">{k}</label>
+                          <input
+                            value={toolTestInputs[k] || ''}
+                            onChange={(e) => setToolTestInputs({ ...toolTestInputs, [k]: e.target.value })}
+                            className="mt-1 w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs"
+                            placeholder={(selected.data.signature as any)?.input_schema?.properties?.[k]?.description || k}
+                          />
+                        </div>
+                      ))}
+                    <button
+                      onClick={testSelectedTool}
+                      disabled={testingTool}
+                      className="mt-2 rounded bg-amber-600 px-3 py-1 text-xs font-medium hover:bg-amber-500 disabled:opacity-50"
+                    >
+                      {testingTool ? 'Testing...' : 'Run tool'}
+                    </button>
+                    {toolTestResult && (
+                      <pre className="mt-2 max-h-32 overflow-auto rounded bg-zinc-950 p-2 text-[11px] text-emerald-300">
+                        {JSON.stringify(toolTestResult, null, 2)}
+                      </pre>
+                    )}
                   </div>
                 )}
                 <div>

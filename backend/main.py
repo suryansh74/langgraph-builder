@@ -120,14 +120,59 @@ For weather tools: include location and api_key in input, and write a realistic 
     except:
         return {"generated": None, "raw": response.content, "note": "Parse as node JSON"}
 
-@app.post("/execute/{graph_id}")
-def execute_graph(graph_id: str, input_state: Dict[str, Any]):
-    if graph_id not in graphs:
-        raise HTTPException(404, "Graph not found")
-    graph = graphs[graph_id]
-    # Simplified execution stub - build StateGraph from nodes
-    # In real impl: compile LangGraph, inject Langfuse callback for tokens
-    return {"status": "executed", "output": input_state, "tokens_used": 150, "steps": len(graph.nodes)}
+@app.post("/test-tool")
+async def test_tool(payload: Dict[str, Any]):
+    """Test a single tool independently. For weather, call OpenWeather if api_key is present."""
+    import httpx
+    tool_type = payload.get("type", "")
+    config = payload.get("config") or {}
+    inputs = payload.get("inputs") or {}
+    label = (payload.get("label") or "").lower()
+    code = payload.get("code") or ""
+
+    # Weather tool: real call if key present
+    if "weather" in label or "weather" in code.lower():
+        api_key = config.get("api_key") or inputs.get("api_key")
+        location = inputs.get("location")
+        if not api_key:
+            return {"error": "No API key on this tool. Add it in NodeSmith or config."}
+        if not location:
+            return {"error": "Provide a location to test."}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(
+                    "https://api.openweathermap.org/data/2.5/weather",
+                    params={"q": location, "appid": api_key, "units": "metric"},
+                )
+                data = r.json()
+                if r.status_code != 200:
+                    return {"error": data.get("message", "OpenWeather error"), "status": r.status_code}
+                return {
+                    "temperature": data["main"]["temp"],
+                    "wind_speed": data["wind"]["speed"],
+                    "conditions": data["weather"][0]["description"],
+                    "humidity": data["main"].get("humidity"),
+                    "source": "OpenWeather (real call)",
+                }
+        except Exception as e:
+            return {"error": str(e)}
+
+    # Generic: ask the LLM to simulate/execute based on the code
+    prompt = f"""You are executing this tool code with the given inputs.
+Code:
+{code}
+
+Inputs: {json.dumps(inputs)}
+
+Return ONLY a JSON object with the tool's output fields. No markdown."""
+    try:
+        resp = await llm.ainvoke([{"role": "user", "content": prompt}])
+        try:
+            return json.loads(resp.content)
+        except:
+            return {"raw": resp.content}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post("/tests")
 def add_test(test: TestCase):
