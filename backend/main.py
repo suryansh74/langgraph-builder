@@ -92,20 +92,22 @@ def get_graph(graph_id: str):
 @app.post("/chat")
 async def chat(request: ChatRequest):
     """Chat to generate tools, agents, or nodes via LLM."""
-    system = """You are a LangGraph node generator.
-Return ONLY valid JSON (no markdown, no extra text) with this shape:
+    system = """You are NodeSmith, a LangGraph node generator.
+Return ONLY valid JSON (no markdown) with this shape:
 {
-  "label": "Human readable name",
-  "type": "tool|llm|agent|subgraph",
+  "label": "Short name",
+  "type": "tool|llm|agent|function|conditional",
+  "tools": [{"name": "tool_name", "description": "..."}],
   "signature": {
-    "name": "snake_case_name",
-    "input_schema": { "type": "object", "properties": { ... }, "required": [...] },
-    "output_schema": { "type": "object", "properties": { ... } },
-    "description": "short description"
+    "name": "snake_case",
+    "input_schema": {"type":"object","properties":{...},"required":[...]},
+    "output_schema": {"type":"object","properties":{...}},
+    "description": "..."
   },
+  "code": "def function_name(state):\\n    # real logic\\n    return {...}",
   "config": {}
 }
-For weather tools include location and api_key in input_schema.
+For weather tools: include location and api_key in input, and write a realistic code stub that uses requests to call OpenWeather (or notes that api_key is required). Do not pretend to call the API if no key is present.
 """
     messages = [
         {"role": "system", "content": system},
