@@ -92,12 +92,21 @@ def get_graph(graph_id: str):
 @app.post("/chat")
 async def chat(request: ChatRequest):
     """Chat to generate tools, agents, or nodes via LLM."""
-    system = """You are a LangGraph node generator. Given a user request, output a JSON node definition
-    with fixed signature (input_schema, output_schema as JSON Schema), type (tool/agent/llm/subgraph),
-    and config. For weather example, include API key placeholder.
-    For hierarchical, mark is_subgraph true and suggest child nodes.
-    Always include signature.
-    """
+    system = """You are a LangGraph node generator.
+Return ONLY valid JSON (no markdown, no extra text) with this shape:
+{
+  "label": "Human readable name",
+  "type": "tool|llm|agent|subgraph",
+  "signature": {
+    "name": "snake_case_name",
+    "input_schema": { "type": "object", "properties": { ... }, "required": [...] },
+    "output_schema": { "type": "object", "properties": { ... } },
+    "description": "short description"
+  },
+  "config": {}
+}
+For weather tools include location and api_key in input_schema.
+"""
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": request.message}
