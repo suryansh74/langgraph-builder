@@ -130,6 +130,7 @@ export default function Page() {
   const [toolTestInputs, setToolTestInputs] = useState<Record<string, string>>({});
   const [toolTestResult, setToolTestResult] = useState<any>(null);
   const [testingTool, setTestingTool] = useState(false);
+  const [renaming, setRenaming] = useState('');
   const dragRef = useRef(false);
   const chatDragRef = useRef(false);
 
