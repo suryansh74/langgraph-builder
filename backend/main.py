@@ -9,7 +9,9 @@ from langgraph.graph import StateGraph, END
 from typing_extensions import TypedDict
 import json
 
-load_dotenv()
+from pathlib import Path
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 app = FastAPI(title="LangGraph Builder Backend")
 
