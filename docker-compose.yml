@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: langgraph-postgres
+    environment:
+      POSTGRES_USER: langgraph
+      POSTGRES_PASSWORD: langgraphpass
+      POSTGRES_DB: langgraph_builder
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langgraph -d langgraph_builder"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Langfuse for open-source observability (token tracking, traces)
+  # Note: Full Langfuse requires ClickHouse, Redis, MinIO. This is a simplified pointer.
+  # See https://langfuse.com/self-hosting/deployment/docker-compose for full setup.
+  # For production, clone langfuse repo and run their compose.
+  langfuse-note:
+    image: alpine
+    command: echo "Langfuse self-host recommended. Use official docker-compose for full token monitoring."
+
+volumes:
+  postgres_data:
