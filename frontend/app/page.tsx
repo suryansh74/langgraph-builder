@@ -17,27 +17,27 @@ import {
   MarkerType,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Play, MessageSquare, X, GripVertical, Trash2, Pencil } from 'lucide-react';
+import { Play, MessageSquare, X, GripVertical, Trash2, Pencil, GitBranch } from 'lucide-react';
 
-// Clear LangGraph-oriented types + colors
+// Clearer type names (not just start/end)
 const typeStyles: Record<string, string> = {
-  start: 'border-emerald-500 bg-emerald-950',
-  end: 'border-rose-500 bg-rose-950',
-  agent: 'border-indigo-500 bg-indigo-950',       // multi-tool reactive agent
-  llm: 'border-violet-500 bg-violet-950',         // single LLM call
-  tool: 'border-amber-500 bg-amber-950',          // external tool / API
-  function: 'border-sky-500 bg-sky-950',          // plain Python function
-  conditional: 'border-orange-500 bg-orange-950', // conditional edge / router
+  entry: 'border-emerald-500 bg-emerald-950',
+  exit: 'border-rose-500 bg-rose-950',
+  agent: 'border-indigo-500 bg-indigo-950',
+  llm: 'border-violet-500 bg-violet-950',
+  tool: 'border-amber-500 bg-amber-950',
+  func: 'border-sky-500 bg-sky-950',
+  branch: 'border-orange-500 bg-orange-950',
 };
 
 const typeLabels: Record<string, string> = {
-  start: 'START',
-  end: 'END',
+  entry: 'ENTRY',
+  exit: 'EXIT',
   agent: 'AGENT',
   llm: 'LLM',
   tool: 'TOOL',
-  function: 'FUNC',
-  conditional: 'COND',
+  func: 'FUNC',
+  branch: 'BRANCH',
 };
 
 function CustomNode({ data }: { data: any }) {
@@ -58,30 +58,30 @@ const nodeTypes = { custom: CustomNode };
 
 const defaultNodes: Node[] = [
   {
-    id: 'start',
+    id: 'entry',
     type: 'custom',
     position: { x: 40, y: 180 },
     data: {
-      label: 'Start',
-      type: 'start',
+      label: 'Entry',
+      type: 'entry',
       tools: [],
+      config: {},
       signature: { input_schema: { properties: {}, required: [] }, output_schema: { properties: {} } },
     },
   },
   {
-    id: 'end',
+    id: 'exit',
     type: 'custom',
     position: { x: 480, y: 180 },
     data: {
-      label: 'End',
-      type: 'end',
+      label: 'Exit',
+      type: 'exit',
       tools: [],
+      config: {},
       signature: { input_schema: { properties: {} }, output_schema: { properties: {} } },
     },
   },
 ];
-
-const defaultEdges: Edge[] = [];
 
 function SchemaTable({ schema }: { schema: any }) {
   const props = schema?.properties || {};
@@ -114,7 +114,7 @@ function SchemaTable({ schema }: { schema: any }) {
 
 export default function Page() {
   const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(defaultEdges);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selected, setSelected] = useState<Node | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
   const [chat, setChat] = useState('');
@@ -122,6 +122,7 @@ export default function Page() {
   const [running, setRunning] = useState(false);
   const [runOutput, setRunOutput] = useState<any>(null);
   const [stateHistory, setStateHistory] = useState<{ node: string; state: any; changed: string[] }[]>([]);
+  const [showStateView, setShowStateView] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(440);
   const [chatHeight, setChatHeight] = useState(200);
   const [showRunForm, setShowRunForm] = useState(false);
@@ -133,10 +134,7 @@ export default function Page() {
   const onConnect = useCallback(
     (params: Connection) =>
       setEdges((eds) =>
-        addEdge(
-          { ...params, animated: true, markerEnd: { type: MarkerType.ArrowClosed, color: '#a1a1aa' }, label: 'next' },
-          eds
-        )
+        addEdge({ ...params, animated: true, markerEnd: { type: MarkerType.ArrowClosed, color: '#a1a1aa' } }, eds)
       ),
     [setEdges]
   );
@@ -172,16 +170,12 @@ export default function Page() {
   const extractJSON = (text: string) => {
     const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     const raw = fence ? fence[1] : text;
-    try {
-      return JSON.parse(raw.trim());
-    } catch {
-      return null;
-    }
+    try { return JSON.parse(raw.trim()); } catch { return null; }
   };
 
   const handleChat = async () => {
     if (!chat.trim()) return;
-    setChatResult('NodeSmith thinking...');
+    setChatResult('NodeSmith...');
     try {
       const res = await fetch('http://localhost:8000/chat', {
         method: 'POST',
@@ -194,17 +188,21 @@ export default function Page() {
       if (!generated && data.raw) generated = extractJSON(data.raw);
       if (generated) {
         const label = generated.label || generated.signature?.name || 'New';
+        // Preserve any api_key mentioned in chat into config
+        const keyMatch = chat.match(/api[_ ]?key[=: ]+([A-Za-z0-9_-]+)/i);
+        const config = { ...(generated.config || {}) };
+        if (keyMatch) config.api_key = keyMatch[1];
         const newNode: Node = {
           id: `n-${Date.now()}`,
           type: 'custom',
-          position: { x: 180 + Math.random() * 120, y: 80 + Math.random() * 140 },
+          position: { x: 160 + Math.random() * 140, y: 80 + Math.random() * 140 },
           data: {
             label,
             type: generated.type || 'tool',
             tools: generated.tools || [],
             signature: generated.signature || generated,
-            code: generated.code || '# no code returned',
-            config: generated.config || {},
+            code: generated.code || '# no code',
+            config,
           },
         };
         setNodes((nds) => [...nds, newNode]);
@@ -215,14 +213,17 @@ export default function Page() {
     }
   };
 
-  const collectRequiredInputs = () => {
+  // Only ask for non-secret required fields at runtime
+  const collectRuntimeInputs = () => {
     const fields: { key: string; desc: string }[] = [];
     const seen = new Set<string>();
+    const secrets = new Set(['api_key', 'apikey', 'key', 'token', 'secret']);
     nodes.forEach((n) => {
       const schema = (n.data.signature as any)?.input_schema;
       const req = schema?.required || [];
       const props = schema?.properties || {};
       req.forEach((k: string) => {
+        if (secrets.has(k.toLowerCase())) return; // skip secrets
         if (!seen.has(k)) {
           seen.add(k);
           fields.push({ key: k, desc: props[k]?.description || k });
@@ -233,11 +234,9 @@ export default function Page() {
   };
 
   const openRun = () => {
-    const fields = collectRequiredInputs();
+    const fields = collectRuntimeInputs();
     const initial: Record<string, string> = {};
-    fields.forEach((f) => {
-      initial[f.key] = runInputs[f.key] || '';
-    });
+    fields.forEach((f) => { initial[f.key] = runInputs[f.key] || ''; });
     setRunInputs(initial);
     setShowRunForm(true);
   };
@@ -247,40 +246,32 @@ export default function Page() {
     setRunning(true);
     const history: { node: string; state: any; changed: string[] }[] = [];
     let current: any = { ...runInputs };
-    history.push({ node: 'Start', state: { ...current }, changed: Object.keys(current) });
+    history.push({ node: 'Entry', state: { ...current }, changed: Object.keys(current) });
 
-    // Simulate walking nodes (skip start/end)
     for (const n of nodes) {
-      if (n.data.type === 'start' || n.data.type === 'end') continue;
+      if (n.data.type === 'entry' || n.data.type === 'exit') continue;
       const prev = { ...current };
-      // Fake step based on type
-      if (n.data.type === 'tool' && (n.data.label as string).toLowerCase().includes('weather')) {
-        if (!runInputs.api_key) {
-          current = { ...current, error: 'No API key provided — tool did not call network' };
+      const cfg = (n.data.config as any) || {};
+      if ((n.data.type === 'tool' || n.data.type === 'func') && String(n.data.label).toLowerCase().includes('weather')) {
+        if (!cfg.api_key) {
+          current = { ...current, error: 'No API key stored on tool' };
         } else {
-          current = {
-            ...current,
-            temperature: 21,
-            wind_speed: 8,
-            conditions: 'Simulated (key present)',
-          };
+          // Real call would go here; for now mark that key is present
+          current = { ...current, temperature: 22, wind_speed: 9, conditions: 'Key present — call would run' };
         }
       } else if (n.data.type === 'llm') {
-        current = { ...current, greeting: `Hello ${runInputs.name || 'there'}` };
+        current = { ...current, reply: `LLM response for ${JSON.stringify(runInputs)}` };
       }
       const changed = Object.keys(current).filter((k) => current[k] !== prev[k]);
       history.push({ node: n.data.label as string, state: { ...current }, changed });
     }
-    history.push({ node: 'End', state: { ...current }, changed: [] });
+    history.push({ node: 'Exit', state: { ...current }, changed: [] });
     setStateHistory(history);
     setRunOutput(current);
     setRunning(false);
   };
 
-  const onMouseDown = () => {
-    dragRef.current = true;
-    document.body.style.cursor = 'col-resize';
-  };
+  const onMouseDown = () => { dragRef.current = true; document.body.style.cursor = 'col-resize'; };
   const onMouseMove = (e: React.MouseEvent) => {
     if (dragRef.current) {
       const w = window.innerWidth - e.clientX;
@@ -306,19 +297,20 @@ export default function Page() {
           <span className="text-xs text-zinc-500">NodeSmith</span>
         </div>
         <div className="flex items-center gap-2">
-          {(selected || selectedEdge) && (
+          {stateHistory.length > 0 && (
             <button
-              onClick={deleteSelected}
-              className="flex items-center gap-1 rounded border border-red-800 bg-red-950 px-3 py-1.5 text-sm text-red-300 hover:bg-red-900"
+              onClick={() => setShowStateView(true)}
+              className="flex items-center gap-1 rounded border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800"
             >
+              <GitBranch className="h-4 w-4" /> State
+            </button>
+          )}
+          {(selected || selectedEdge) && (
+            <button onClick={deleteSelected} className="flex items-center gap-1 rounded border border-red-800 bg-red-950 px-3 py-1.5 text-sm text-red-300 hover:bg-red-900">
               <Trash2 className="h-4 w-4" /> Delete
             </button>
           )}
-          <button
-            onClick={openRun}
-            disabled={running}
-            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
-          >
+          <button onClick={openRun} disabled={running} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50">
             <Play className="h-4 w-4" /> {running ? 'Running...' : 'Run'}
           </button>
         </div>
@@ -342,38 +334,9 @@ export default function Page() {
             <Controls className="!bg-zinc-800 !border-zinc-700" />
             <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#3f3f46" />
           </ReactFlow>
-
-          {/* State history table */}
-          {stateHistory.length > 0 && (
-            <div className="absolute bottom-4 left-4 max-w-md rounded-lg border border-zinc-700 bg-zinc-900/95 p-3 text-xs">
-              <div className="mb-2 font-medium text-zinc-300">State history</div>
-              <div className="max-h-40 overflow-auto">
-                {stateHistory.map((step, i) => (
-                  <div key={i} className="mb-2 border-b border-zinc-800 pb-1">
-                    <div className="text-zinc-400">{step.node}</div>
-                    <div className="flex flex-wrap gap-1">
-                      {Object.entries(step.state).map(([k, v]) => (
-                        <span
-                          key={k}
-                          className={`rounded px-1 ${
-                            step.changed.includes(k) ? 'bg-red-900 text-red-200' : 'bg-zinc-800 text-zinc-400'
-                          }`}
-                        >
-                          {k}: {String(v).slice(0, 20)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
-        <div
-          onMouseDown={onMouseDown}
-          className="flex w-1.5 cursor-col-resize items-center justify-center bg-zinc-800 hover:bg-indigo-600"
-        >
+        <div onMouseDown={onMouseDown} className="flex w-1.5 cursor-col-resize items-center justify-center bg-zinc-800 hover:bg-indigo-600">
           <GripVertical className="h-4 w-4 text-zinc-500" />
         </div>
 
@@ -383,33 +346,28 @@ export default function Page() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="font-semibold">{selected.data.label as string}</h2>
-                  <button onClick={() => setSelected(null)} className="text-zinc-500 hover:text-zinc-300">
-                    <X className="h-4 w-4" />
-                  </button>
+                  <button onClick={() => setSelected(null)} className="text-zinc-500 hover:text-zinc-300"><X className="h-4 w-4" /></button>
                 </div>
                 <div className="flex gap-2">
-                  <input
-                    value={renaming}
-                    onChange={(e) => setRenaming(e.target.value)}
-                    className="flex-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm"
-                  />
-                  <button onClick={renameNode} className="rounded bg-zinc-700 px-2 py-1 text-xs">
-                    <Pencil className="h-3 w-3" />
-                  </button>
+                  <input value={renaming} onChange={(e) => setRenaming(e.target.value)} className="flex-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm" />
+                  <button onClick={renameNode} className="rounded bg-zinc-700 px-2 py-1 text-xs"><Pencil className="h-3 w-3" /></button>
                 </div>
                 <div>
                   <div className="mb-1 text-xs uppercase text-zinc-500">Type</div>
-                  <div className="rounded bg-zinc-800 px-2 py-1 text-sm">
-                    {typeLabels[selected.data.type as string] || selected.data.type}
-                  </div>
+                  <div className="rounded bg-zinc-800 px-2 py-1 text-sm">{typeLabels[selected.data.type as string] || selected.data.type}</div>
                 </div>
+                {(selected.data.config as any)?.api_key && (
+                  <div className="rounded bg-amber-950 px-2 py-1 text-xs text-amber-300">
+                    API key stored: {(selected.data.config as any).api_key.slice(0, 6)}…
+                  </div>
+                )}
                 <div>
                   <div className="mb-1 text-xs uppercase text-zinc-500">Tools</div>
                   {((selected.data.tools as any[]) || []).length === 0 ? (
                     <div className="text-xs text-zinc-500">None</div>
                   ) : (
                     <ul className="space-y-1">
-                      {(selected.data.tools as any[]).map((t) => (
+                      {(selected.data.tools as any[]).map((t: any) => (
                         <li key={t.name} className="rounded bg-zinc-800 px-2 py-1.5 text-xs">
                           <span className="font-mono text-amber-300">{t.name}</span>
                           <span className="ml-2 text-zinc-400">{t.description}</span>
@@ -418,23 +376,16 @@ export default function Page() {
                     </ul>
                   )}
                 </div>
-                {(selected.data.config as any)?.api_key && (
-                  <div className="text-xs text-amber-300">API key present in config</div>
-                )}
                 <div>
                   <div className="mb-1 text-xs uppercase text-zinc-500">Input</div>
-                  <div className="rounded border border-zinc-800 p-2">
-                    <SchemaTable schema={(selected.data.signature as any)?.input_schema} />
-                  </div>
+                  <div className="rounded border border-zinc-800 p-2"><SchemaTable schema={(selected.data.signature as any)?.input_schema} /></div>
                 </div>
                 <div>
                   <div className="mb-1 text-xs uppercase text-zinc-500">Output</div>
-                  <div className="rounded border border-zinc-800 p-2">
-                    <SchemaTable schema={(selected.data.signature as any)?.output_schema} />
-                  </div>
+                  <div className="rounded border border-zinc-800 p-2"><SchemaTable schema={(selected.data.signature as any)?.output_schema} /></div>
                 </div>
                 <div>
-                  <div className="mb-1 text-xs uppercase text-zinc-500">Node code</div>
+                  <div className="mb-1 text-xs uppercase text-zinc-500">Code</div>
                   <pre className="max-h-48 overflow-auto rounded bg-zinc-950 p-3 text-[11px] leading-relaxed text-zinc-300">
                     {(selected.data.code as string) || 'No code'}
                   </pre>
@@ -443,28 +394,20 @@ export default function Page() {
             ) : selectedEdge ? (
               <div>
                 <h2 className="mb-2 font-semibold">Edge</h2>
-                <div className="text-sm text-zinc-400">
-                  {selectedEdge.source} → {selectedEdge.target}
-                </div>
-                <button
-                  onClick={deleteSelected}
-                  className="mt-4 flex items-center gap-1 rounded bg-red-900 px-3 py-1.5 text-sm text-red-200"
-                >
+                <div className="text-sm text-zinc-400">{selectedEdge.source} → {selectedEdge.target}</div>
+                <button onClick={deleteSelected} className="mt-4 flex items-center gap-1 rounded bg-red-900 px-3 py-1.5 text-sm text-red-200">
                   <Trash2 className="h-4 w-4" /> Delete edge
                 </button>
               </div>
             ) : (
               <div className="text-sm text-zinc-500">
-                Click a node. Types: START / END / AGENT / LLM / TOOL / FUNC / COND
+                Types: ENTRY · EXIT · AGENT · LLM · TOOL · FUNC · BRANCH
               </div>
             )}
           </div>
 
           <div
-            onMouseDown={() => {
-              chatDragRef.current = true;
-              document.body.style.cursor = 'row-resize';
-            }}
+            onMouseDown={() => { chatDragRef.current = true; document.body.style.cursor = 'row-resize'; }}
             className="flex h-2 cursor-row-resize items-center justify-center bg-zinc-800 hover:bg-indigo-600"
           />
           <div style={{ height: chatHeight }} className="flex flex-col border-t border-zinc-800 p-4">
@@ -476,12 +419,10 @@ export default function Page() {
                 value={chat}
                 onChange={(e) => setChat(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleChat()}
-                placeholder="make a weather tool..."
+                placeholder="make a weather tool, api key is ..."
                 className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm outline-none focus:border-indigo-500"
               />
-              <button onClick={handleChat} className="rounded-lg bg-indigo-600 px-3 py-2 text-sm hover:bg-indigo-500">
-                Go
-              </button>
+              <button onClick={handleChat} className="rounded-lg bg-indigo-600 px-3 py-2 text-sm hover:bg-indigo-500">Go</button>
             </div>
             {chatResult && (
               <pre className="mt-2 flex-1 overflow-auto rounded bg-zinc-800 p-2 text-xs text-zinc-400">{chatResult}</pre>
@@ -493,11 +434,12 @@ export default function Page() {
       {showRunForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="w-[420px] rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
-            <h3 className="mb-3 text-lg font-semibold">Required inputs</h3>
-            {collectRequiredInputs().length === 0 ? (
-              <div className="mb-4 text-sm text-zinc-400">No required fields.</div>
+            <h3 className="mb-3 text-lg font-semibold">Runtime inputs</h3>
+            <p className="mb-3 text-xs text-zinc-500">API keys are not asked here — they stay on the tool.</p>
+            {collectRuntimeInputs().length === 0 ? (
+              <div className="mb-4 text-sm text-zinc-400">No runtime fields needed.</div>
             ) : (
-              collectRequiredInputs().map((f) => (
+              collectRuntimeInputs().map((f) => (
                 <div key={f.key} className="mb-3">
                   <label className="mb-1 block text-xs uppercase text-zinc-500">{f.key}</label>
                   <input
@@ -510,12 +452,53 @@ export default function Page() {
               ))
             )}
             <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setShowRunForm(false)} className="rounded px-3 py-1.5 text-sm text-zinc-400">
-                Cancel
-              </button>
-              <button onClick={doRun} className="rounded bg-emerald-600 px-4 py-1.5 text-sm font-medium">
-                Execute
-              </button>
+              <button onClick={() => setShowRunForm(false)} className="rounded px-3 py-1.5 text-sm text-zinc-400">Cancel</button>
+              <button onClick={doRun} className="rounded bg-emerald-600 px-4 py-1.5 text-sm font-medium">Execute</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Separate state graph view */}
+      {showStateView && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl border border-zinc-700 bg-zinc-900">
+            <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+              <h3 className="font-semibold">State transitions</h3>
+              <button onClick={() => setShowStateView(false)} className="text-zinc-400 hover:text-zinc-200"><X /></button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <div className="flex items-center gap-2 overflow-x-auto pb-4">
+                {stateHistory.map((step, i) => (
+                  <div key={i} className="flex items-center">
+                    <div className="min-w-[160px] rounded border border-zinc-700 bg-zinc-800 p-2 text-xs">
+                      <div className="mb-1 font-medium text-zinc-300">{step.node}</div>
+                      {Object.entries(step.state).map(([k, v]) => (
+                        <div key={k} className={step.changed.includes(k) ? 'text-red-400' : 'text-zinc-400'}>
+                          {k}: {String(v).slice(0, 24)}
+                        </div>
+                      ))}
+                    </div>
+                    {i < stateHistory.length - 1 && <div className="mx-1 text-zinc-500">→</div>}
+                  </div>
+                ))}
+              </div>
+              <table className="mt-4 w-full text-xs">
+                <thead>
+                  <tr className="text-left text-zinc-500">
+                    <th className="pb-1">Step</th>
+                    <th className="pb-1">Changed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stateHistory.map((s, i) => (
+                    <tr key={i} className="border-t border-zinc-800">
+                      <td className="py-1">{s.node}</td>
+                      <td className="py-1 text-red-400">{s.changed.join(', ') || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
